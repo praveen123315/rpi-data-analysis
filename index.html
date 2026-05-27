@@ -1014,9 +1014,15 @@
           </select>
         </div>
         <div class="filter-group">
-          <div class="filter-label">Month</div>
-          <select class="filter-select" id="custMonthFilter" onchange="renderCustomerTable()">
-            <option value="">All Months</option>
+          <div class="filter-label">Month From</div>
+          <select class="filter-select" id="custMonthFromFilter" onchange="renderCustomerTable()">
+            <option value="">All</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <div class="filter-label">Month To</div>
+          <select class="filter-select" id="custMonthToFilter" onchange="renderCustomerTable()">
+            <option value="">All</option>
           </select>
         </div>
       </div>
@@ -1519,7 +1525,7 @@ function buildFilters() {
 
   ['monthlyProductFilter','packProductFilter','custProductFilter','stationProductFilter','forecastProductFilter','mpPackProductFilter','mprodProductFilter','msProductFilter'].forEach(id => populateSelect(id, ps));
   ['monthlyGroupFilter','mprodGroupFilter','msGroupFilter'].forEach(id => populateSelect(id, gs));
-  ['monthlyFromFilter','monthlyToFilter','packMonthFilter','custMonthFilter','stationMonthFilter','mpMonthFilter','mprodMonthFilter','msMonthFilter'].forEach(id => populateSelect(id, ms));
+  ['monthlyFromFilter','monthlyToFilter','packMonthFilter','custMonthFromFilter','custMonthToFilter','stationMonthFilter','mpMonthFilter','mprodMonthFilter','msMonthFilter'].forEach(id => populateSelect(id, ms));
   ['custLocationFilter'].forEach(id => populateSelect(id, ls));
   ['packSizeFilter','mpPackSizeFilter'].forEach(id => populateSelect(id, pk));
   ['mprodShadeFilter','msShadeFilter'].forEach(id => populateSelect(id, sh));
@@ -1708,9 +1714,9 @@ function renderMonthlyTable() {
   const paged = rows.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE);
 
   document.getElementById('monthlyTableHead').innerHTML = `
-    <th onclick="sortTable('monthly','month')">Month</th>
     <th onclick="sortTable('monthly','customer')">Customer Name</th>
-    <th onclick="sortTable('monthly','location')">Location</th>
+    <th onclick="sortTable('monthly','location')">Station</th>
+    <th onclick="sortTable('monthly','month')">Month</th>
     <th onclick="sortTable('monthly','product')">Product</th>
     <th onclick="sortTable('monthly','qty')" class="num-right">Qty Sold</th>
     <th onclick="sortTable('monthly','ltr')" class="num-right">Total Ltr/Kg</th>
@@ -1718,9 +1724,9 @@ function renderMonthlyTable() {
 
   document.getElementById('monthlyTableBody').innerHTML = paged.length ? paged.map(r=>`
     <tr>
-      <td><span class="badge badge-blue">${r.month}</span></td>
-      <td style="font-weight:500;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.customer}">${r.customer}</td>
+      <td style="font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.customer}">${r.customer}</td>
       <td><span class="badge badge-green">${r.location}</span></td>
+      <td><span class="badge badge-blue">${r.month}</span></td>
       <td class="product-name-cell" title="${r.product}">${r.product}</td>
       <td class="num-right">${num(r.qty)}</td>
       <td class="num-right">${num(r.ltr,1)}</td>
@@ -1808,7 +1814,8 @@ function getCustFiltered() {
   return filteredData({
     location: document.getElementById('custLocationFilter').value,
     product: document.getElementById('custProductFilter').value,
-    month: document.getElementById('custMonthFilter').value,
+    monthFrom: document.getElementById('custMonthFromFilter').value,
+    monthTo: document.getElementById('custMonthToFilter').value,
     search: document.getElementById('custSearch').value,
   });
 }
