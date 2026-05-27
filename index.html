@@ -1684,11 +1684,11 @@ function renderMonthlyTable() {
   renderMonthlyChart();
   const data = getMonthlyFiltered();
 
-  // Group by month + product
+  // Group by month + product + customer
   const map = {};
   data.forEach(r => {
-    const k = r.month+'||'+r.product;
-    if (!map[k]) map[k] = { month:r.month, product:r.product, qty:0, ltr:0, packs:{} };
+    const k = r.month+'||'+r.product+'||'+(r.party||'');
+    if (!map[k]) map[k] = { month:r.month, product:r.product, customer:r.party||'—', location:r.location||'—', qty:0, ltr:0, packs:{} };
     map[k].qty += r.qty;
     map[k].ltr += r.totalLtr;
     if (r.packSize) map[k].packs[r.packSize] = (map[k].packs[r.packSize]||0)+r.qty;
@@ -1709,6 +1709,8 @@ function renderMonthlyTable() {
 
   document.getElementById('monthlyTableHead').innerHTML = `
     <th onclick="sortTable('monthly','month')">Month</th>
+    <th onclick="sortTable('monthly','customer')">Customer Name</th>
+    <th onclick="sortTable('monthly','location')">Location</th>
     <th onclick="sortTable('monthly','product')">Product</th>
     <th onclick="sortTable('monthly','qty')" class="num-right">Qty Sold</th>
     <th onclick="sortTable('monthly','ltr')" class="num-right">Total Ltr/Kg</th>
@@ -1717,11 +1719,13 @@ function renderMonthlyTable() {
   document.getElementById('monthlyTableBody').innerHTML = paged.length ? paged.map(r=>`
     <tr>
       <td><span class="badge badge-blue">${r.month}</span></td>
+      <td style="font-weight:500;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.customer}">${r.customer}</td>
+      <td><span class="badge badge-green">${r.location}</span></td>
       <td class="product-name-cell" title="${r.product}">${r.product}</td>
       <td class="num-right">${num(r.qty)}</td>
       <td class="num-right">${num(r.ltr,1)}</td>
       <td>${Object.entries(r.packs).sort((a,b)=>parseFloat(a[0])-parseFloat(b[0])).map(([sz,q])=>`<span class="pack-chip">${sz}L: ${num(q)}</span>`).join('')}</td>
-    </tr>`).join('') : '<tr><td colspan="5" class="empty-state"><p>No data matching filters</p></td></tr>';
+    </tr>`).join('') : '<tr><td colspan="7" class="empty-state"><p>No data matching filters</p></td></tr>';
 
   renderPagination('monthlyPagination', total, page, p=>{ pageState.monthly=p; renderMonthlyTable(); });
 }
@@ -2460,8 +2464,8 @@ function exportMonthly() {
   const data = getMonthlyFiltered();
   const map={};
   data.forEach(r=>{
-    const k=r.month+'||'+r.product;
-    if(!map[k]) map[k]={Month:r.month, Product:r.product, 'Qty Sold':0, 'Total Ltr/Kg':0};
+    const k=r.month+'||'+r.product+'||'+(r.party||'');
+    if(!map[k]) map[k]={Month:r.month, 'Customer Name':r.party||'—', 'Location':r.location||'—', Product:r.product, 'Qty Sold':0, 'Total Ltr/Kg':0};
     map[k]['Qty Sold']+=r.qty; map[k]['Total Ltr/Kg']+=r.totalLtr;
   });
   const ws=XLSX.utils.json_to_sheet(Object.values(map));
