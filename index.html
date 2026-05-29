@@ -1271,8 +1271,12 @@
           <select class="filter-select" id="msShadeFilter" onchange="renderMonthShadeTable()"><option value="">All Shades</option></select>
         </div>
         <div class="filter-group">
-          <div class="filter-label">Month</div>
-          <select class="filter-select" id="msMonthFilter" onchange="renderMonthShadeTable()"><option value="">All Months</option></select>
+          <div class="filter-label">Month From</div>
+          <select class="filter-select" id="msMonthFromFilter" onchange="renderMonthShadeTable()"><option value="">All</option></select>
+        </div>
+        <div class="filter-group">
+          <div class="filter-label">Month To</div>
+          <select class="filter-select" id="msMonthToFilter" onchange="renderMonthShadeTable()"><option value="">All</option></select>
         </div>
         <div class="filter-group">
           <div class="filter-label">Group</div>
@@ -1525,7 +1529,7 @@ function buildFilters() {
 
   ['monthlyProductFilter','packProductFilter','custProductFilter','stationProductFilter','forecastProductFilter','mpPackProductFilter','mprodProductFilter','msProductFilter'].forEach(id => populateSelect(id, ps));
   ['monthlyGroupFilter','mprodGroupFilter','msGroupFilter'].forEach(id => populateSelect(id, gs));
-  ['monthlyFromFilter','monthlyToFilter','packMonthFilter','custMonthFromFilter','custMonthToFilter','stationMonthFilter','mpMonthFilter','mprodMonthFilter','msMonthFilter'].forEach(id => populateSelect(id, ms));
+  ['monthlyFromFilter','monthlyToFilter','packMonthFilter','custMonthFromFilter','custMonthToFilter','stationMonthFilter','mpMonthFilter','mprodMonthFilter','msMonthFromFilter','msMonthToFilter'].forEach(id => populateSelect(id, ms));
   ['custLocationFilter'].forEach(id => populateSelect(id, ls));
   ['packSizeFilter','mpPackSizeFilter'].forEach(id => populateSelect(id, pk));
   ['mprodShadeFilter','msShadeFilter'].forEach(id => populateSelect(id, sh));
@@ -2366,12 +2370,13 @@ let msPageState = 1;
 let msAllRows = [];
 
 function getMsFiltered() {
-  const prod  = document.getElementById('msProductFilter').value;
-  const shade = document.getElementById('msShadeFilter').value;
-  const mo    = document.getElementById('msMonthFilter').value;
-  const grp   = document.getElementById('msGroupFilter').value;
-  const srch  = ((document.getElementById('msSearch')||{}).value||'');
-  const base  = filteredData({ product:prod, shade:shade||undefined, month:mo, group:grp });
+  const prod    = document.getElementById('msProductFilter').value;
+  const shade   = document.getElementById('msShadeFilter').value;
+  const moFrom  = document.getElementById('msMonthFromFilter').value;
+  const moTo    = document.getElementById('msMonthToFilter').value;
+  const grp     = document.getElementById('msGroupFilter').value;
+  const srch    = ((document.getElementById('msSearch')||{}).value||'');
+  const base    = filteredData({ product:prod, shade:shade||undefined, group:grp, monthFrom:moFrom||undefined, monthTo:moTo||undefined });
   if (!srch) return base;
   const s = srch.toLowerCase();
   return base.filter(r=>(r.shade||'').toLowerCase().includes(s));
@@ -2380,85 +2385,169 @@ function getMsFiltered() {
 function renderMonthShadeTable() {
   const data = getMsFiltered();
   const allMonths = uniq(data.map(r=>r.month)).sort();
-  const allShades = uniq(data.map(r=>r.shade)).filter(Boolean).sort();
 
-  // Charts — use totalLtr as pcs (Total Ltr. = pcs of nugs/ord/drum treat qty)
-  const top10 = allShades.slice(0,10);
-  const pivot={};
-  data.forEach(r=>{
-    if(!r.shade) return;
-    if(!pivot[r.shade]) pivot[r.shade]={};
-    pivot[r.shade][r.month]=(pivot[r.shade][r.month]||0)+r.totalLtr;
+  // Key = shade + product + group + packSize  →  one row per pack size per shade
+  const pivotMeta = {}; // key -> { shade, product, group, packSize }
+  const pivot     = {}; // key -> { month -> { qty, ltr } }
+
+  data.forEach(r => {
+    if (!r.shade) return;
+    const ps  = r.packSize != null ? String(r.packSize) : 'N/A';
+    const key = r.shade + '||' + r.product + '||' + (r.group||'') + '||' + ps;
+    if (!pivotMeta[key]) pivotMeta[key] = {
+      shade:    r.shade,
+      product:  r.product,
+      group:    r.group||'—',
+      packSize: r.packSize != null ? r.packSize : null
+    };
+    if (!pivot[key]) pivot[key] = {};
+    if (!pivot[key][r.month]) pivot[key][r.month] = { qty:0, ltr:0 };
+    pivot[key][r.month].qty += r.qty;
+    pivot[key][r.month].ltr += r.totalLtr;
   });
 
+  const allKeys = Object.keys(pivotMeta).sort((a,b)=>{
+    const ma = pivotMeta[a], mb = pivotMeta[b];
+    if (ma.product !== mb.product) return ma.product.localeCompare(mb.product);
+    if (ma.shade   !== mb.shade)   return ma.shade.localeCompare(mb.shade);
+    return (ma.packSize||0) - (mb.packSize||0);
+  });
+
+  // Charts — by shade qty (merged across pack sizes)
+  const allShades  = uniq(data.map(r=>r.shade)).filter(Boolean).sort();
+  const top10      = allShades.slice(0,10);
+  const chartPivot = {};
+  data.forEach(r=>{
+    if(!r.shade) return;
+    if(!chartPivot[r.shade]) chartPivot[r.shade]={};
+    chartPivot[r.shade][r.month]=(chartPivot[r.shade][r.month]||0)+r.qty;
+  });
   const barDatasets = top10.map((s,i)=>({
     label: s.length>20?s.slice(0,20)+'…':s,
-    data: allMonths.map(m=>pivot[s]&&pivot[s][m]||0),
+    data: allMonths.map(m=>chartPivot[s]&&chartPivot[s][m]||0),
     backgroundColor: PALETTE[i%PALETTE.length]+'bb',
     borderColor: PALETTE[i%PALETTE.length],
     borderWidth:1, borderRadius:3
   }));
   makeChart('msBarChart','bar',{labels:allMonths,datasets:barDatasets},{extra:{plugins:{legend:{position:'top',labels:{font:{size:9},boxWidth:8}}},scales:{x:{grid:{color:'#eef0f7'}},y:{grid:{color:'#eef0f7'}}}}});
+  const pie10totals = allShades.slice(0,12).map(s=>Object.values(chartPivot[s]||{}).reduce((a,b)=>a+b,0));
+  makeChart('msPieChart','doughnut',{labels:allShades.slice(0,12),datasets:[{data:pie10totals,backgroundColor:PALETTE.map(c=>c+'cc'),borderWidth:1,borderColor:'#fff'}]},{});
 
-  const pie10shades = allShades.slice(0,12);
-  const pie10totals = pie10shades.map(s=>Object.values(pivot[s]||{}).reduce((a,b)=>a+b,0));
-  makeChart('msPieChart','doughnut',{labels:pie10shades,datasets:[{data:pie10totals,backgroundColor:PALETTE.map(c=>c+'cc'),borderWidth:1,borderColor:'#fff'}]},{});
-
-  // Table head
+  // Table head — each month gets two sub-columns: Pcs + Ltr
   const head = document.getElementById('msTableHead');
-  head.innerHTML = `<th class="pivot-th" style="text-align:left;min-width:200px">Shade</th>` +
-    allMonths.map(m=>`<th class="pivot-th">${m}</th>`).join('') +
-    `<th class="pivot-th pivot-total">Total Pcs</th>`;
+  head.innerHTML =
+    `<th class="pivot-th" style="text-align:left;min-width:180px" rowspan="2">Shade</th>` +
+    `<th class="pivot-th" style="text-align:left;min-width:160px" rowspan="2">Product</th>` +
+    `<th class="pivot-th" style="text-align:left;min-width:100px" rowspan="2">Group</th>` +
+    `<th class="pivot-th" style="text-align:center;min-width:90px" rowspan="2">Pack Size</th>` +
+    allMonths.map(m=>`<th class="pivot-th" colspan="2" style="text-align:center;border-bottom:1px solid var(--border)">${m}</th>`).join('') +
+    `<th class="pivot-th pivot-total" colspan="2" style="text-align:center" rowspan="1">Total</th>`;
+
+  // Second header row: Pcs / Ltr under each month
+  const subHead = document.createElement('tr');
+  subHead.id = 'msTableSubHead';
+  subHead.innerHTML =
+    allMonths.map(()=>
+      `<th class="pivot-th" style="font-size:0.65rem;color:var(--accent2)">Pcs</th>` +
+      `<th class="pivot-th" style="font-size:0.65rem;color:var(--green)">Ltr</th>`
+    ).join('') +
+    `<th class="pivot-th pivot-total" style="font-size:0.65rem;color:var(--accent2)">Pcs</th>` +
+    `<th class="pivot-th pivot-total" style="font-size:0.65rem;color:var(--green)">Ltr</th>`;
+
+  // Remove old sub-head if exists, insert fresh
+  const oldSub = document.getElementById('msTableSubHead');
+  if (oldSub) oldSub.remove();
+  head.parentNode.appendChild(subHead);
 
   // Pagination
-  msAllRows = allShades;
-  const page = msPageState;
-  const paged = allShades.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE);
+  msAllRows = allKeys;
+  const page  = msPageState;
+  const paged = allKeys.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE);
 
-  let grandPcsByMonth={}, grand=0;
-  allMonths.forEach(m=>grandPcsByMonth[m]=0);
+  let grandQtyByMonth={}, grandLtrByMonth={}, grandQty=0, grandLtr=0;
+  allMonths.forEach(m=>{ grandQtyByMonth[m]=0; grandLtrByMonth[m]=0; });
 
   const body = document.getElementById('msTableBody');
   if (!paged.length) { body.innerHTML='<tr><td colspan="99" class="empty-state"><p>No shade data available</p></td></tr>'; return; }
 
-  const rowsHtml = paged.map(s=>{
-    let tot=0;
+  const rowsHtml = paged.map(key=>{
+    const { shade, product, group, packSize } = pivotMeta[key];
+    const psLabel = packSize != null
+      ? `<span class="pack-chip" style="font-weight:600">${packSize} L/Kg</span>`
+      : `<span style="color:var(--text-dim);font-size:0.78rem">N/A</span>`;
+    let totQty=0, totLtr=0;
     const cells = allMonths.map(m=>{
-      const v=(pivot[s]&&pivot[s][m])||0;
-      tot+=v; grandPcsByMonth[m]+=v;
-      return `<td class="pivot-td ${v===0?'zero':''}">${v?num(v):'-'}</td>`;
+      const v = (pivot[key]&&pivot[key][m]) || {qty:0,ltr:0};
+      totQty += v.qty; totLtr += v.ltr;
+      grandQtyByMonth[m] += v.qty; grandLtrByMonth[m] += v.ltr;
+      return `<td class="pivot-td ${v.qty===0?'zero':''}" style="color:var(--accent2)">${v.qty?num(v.qty):'-'}</td>` +
+             `<td class="pivot-td ${v.ltr===0?'zero':''}" style="color:var(--green);font-size:0.82rem">${v.ltr?num(v.ltr,1):'-'}</td>`;
     }).join('');
-    grand+=tot;
-    return `<tr><td class="pivot-td-label" title="${s}">${s.length>40?s.slice(0,40)+'…':s}</td>${cells}<td class="pivot-td pivot-total" style="font-weight:700;color:var(--gold)">${num(tot)}</td></tr>`;
+    grandQty+=totQty; grandLtr+=totLtr;
+    return `<tr>
+      <td class="pivot-td-label" title="${shade}">${shade.length>35?shade.slice(0,35)+'…':shade}</td>
+      <td class="pivot-td-label" title="${product}">${product.length>25?product.slice(0,25)+'…':product}</td>
+      <td class="pivot-td-label"><span class="badge badge-purple">${group}</span></td>
+      <td class="pivot-td" style="text-align:center">${psLabel}</td>
+      ${cells}
+      <td class="pivot-td pivot-total" style="font-weight:700;color:var(--accent2)">${num(totQty)}</td>
+      <td class="pivot-td pivot-total" style="font-weight:700;color:var(--green);font-size:0.85rem">${num(totLtr,1)}</td>
+    </tr>`;
   }).join('');
 
   body.innerHTML = rowsHtml + `<tr style="background:var(--surface2);font-weight:700">
-    <td class="pivot-td-label" style="color:var(--gold);font-weight:700">TOTAL</td>
-    ${allMonths.map(m=>`<td class="pivot-td pivot-total">${num(grandPcsByMonth[m])}</td>`).join('')}
-    <td class="pivot-td pivot-total" style="font-size:1rem;color:var(--gold)">${num(grand)}</td>
+    <td class="pivot-td-label" style="color:var(--gold);font-weight:700" colspan="4">TOTAL</td>
+    ${allMonths.map(m=>`
+      <td class="pivot-td pivot-total" style="color:var(--accent2)">${num(grandQtyByMonth[m])}</td>
+      <td class="pivot-td pivot-total" style="color:var(--green);font-size:0.82rem">${num(grandLtrByMonth[m],1)}</td>`).join('')}
+    <td class="pivot-td pivot-total" style="font-size:0.95rem;color:var(--accent2)">${num(grandQty)}</td>
+    <td class="pivot-td pivot-total" style="font-size:0.95rem;color:var(--green)">${num(grandLtr,1)}</td>
   </tr>`;
 
-  renderPagination('msPagination', allShades.length, page, p=>{ msPageState=p; renderMonthShadeTable(); });
+  renderPagination('msPagination', allKeys.length, page, p=>{ msPageState=p; renderMonthShadeTable(); });
 }
 
 function exportMonthShade() {
   const data = getMsFiltered();
   const allMonths = uniq(data.map(r=>r.month)).sort();
-  const pivot={};
-  data.forEach(r=>{
-    if(!r.shade) return;
-    if(!pivot[r.shade]) pivot[r.shade]={};
-    pivot[r.shade][r.month]=(pivot[r.shade][r.month]||0)+r.totalLtr;
+
+  const pivotMeta = {};
+  const pivot     = {};
+  data.forEach(r => {
+    if (!r.shade) return;
+    const ps  = r.packSize != null ? String(r.packSize) : 'N/A';
+    const key = r.shade + '||' + r.product + '||' + (r.group||'') + '||' + ps;
+    if (!pivotMeta[key]) pivotMeta[key] = { shade: r.shade, product: r.product, group: r.group||'—', packSize: r.packSize != null ? r.packSize+' L/Kg' : 'N/A' };
+    if (!pivot[key]) pivot[key] = {};
+    if (!pivot[key][r.month]) pivot[key][r.month] = { qty:0, ltr:0 };
+    pivot[key][r.month].qty += r.qty;
+    pivot[key][r.month].ltr += r.totalLtr;
   });
-  const rows=[];
-  Object.keys(pivot).sort().forEach(s=>{
-    const row={'Shade':s}; let tot=0;
-    allMonths.forEach(m=>{ const v=(pivot[s]&&pivot[s][m])||0; row[m]=v; tot+=v; });
-    row['Total Pcs']=tot; rows.push(row);
+
+  const rows = [];
+  Object.keys(pivotMeta).sort((a,b)=>{
+    const ma=pivotMeta[a], mb=pivotMeta[b];
+    if (ma.product !== mb.product) return ma.product.localeCompare(mb.product);
+    if (ma.shade   !== mb.shade)   return ma.shade.localeCompare(mb.shade);
+    return parseFloat(ma.packSize||0) - parseFloat(mb.packSize||0);
+  }).forEach(key => {
+    const { shade, product, group, packSize } = pivotMeta[key];
+    const row = { 'Shade': shade, 'Product': product, 'Group': group, 'Pack Size': packSize };
+    let totQty=0, totLtr=0;
+    allMonths.forEach(m => {
+      const v = (pivot[key][m]) || {qty:0,ltr:0};
+      row[m+' Pcs'] = v.qty;
+      row[m+' Ltr'] = parseFloat(v.ltr.toFixed(1));
+      totQty += v.qty; totLtr += v.ltr;
+    });
+    row['Total Pcs'] = totQty;
+    row['Total Ltr']  = parseFloat(totLtr.toFixed(1));
+    rows.push(row);
   });
-  const ws=XLSX.utils.json_to_sheet(rows);
-  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Month x Shade');
-  xlsxDownload(wb,'Month_Shade_Report');
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Month x Shade');
+  xlsxDownload(wb, 'Month_Shade_Report');
 }
 
 // ─── EXCEL EXPORTS ────────────────────────────────────────────────────────────
