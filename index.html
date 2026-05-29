@@ -2382,13 +2382,13 @@ function renderMonthShadeTable() {
   const allMonths = uniq(data.map(r=>r.month)).sort();
   const allShades = uniq(data.map(r=>r.shade)).filter(Boolean).sort();
 
-  // Charts
+  // Charts — use totalLtr as pcs (Total Ltr. = pcs of nugs/ord/drum treat qty)
   const top10 = allShades.slice(0,10);
   const pivot={};
   data.forEach(r=>{
     if(!r.shade) return;
     if(!pivot[r.shade]) pivot[r.shade]={};
-    pivot[r.shade][r.month]=(pivot[r.shade][r.month]||0)+r.qty;
+    pivot[r.shade][r.month]=(pivot[r.shade][r.month]||0)+r.totalLtr;
   });
 
   const barDatasets = top10.map((s,i)=>({
@@ -2400,7 +2400,6 @@ function renderMonthShadeTable() {
   }));
   makeChart('msBarChart','bar',{labels:allMonths,datasets:barDatasets},{extra:{plugins:{legend:{position:'top',labels:{font:{size:9},boxWidth:8}}},scales:{x:{grid:{color:'#eef0f7'}},y:{grid:{color:'#eef0f7'}}}}});
 
-  const shadeTotals = allShades.map(s=>Object.values(pivot[s]||{}).reduce((a,b)=>a+b,0));
   const pie10shades = allShades.slice(0,12);
   const pie10totals = pie10shades.map(s=>Object.values(pivot[s]||{}).reduce((a,b)=>a+b,0));
   makeChart('msPieChart','doughnut',{labels:pie10shades,datasets:[{data:pie10totals,backgroundColor:PALETTE.map(c=>c+'cc'),borderWidth:1,borderColor:'#fff'}]},{});
@@ -2409,15 +2408,15 @@ function renderMonthShadeTable() {
   const head = document.getElementById('msTableHead');
   head.innerHTML = `<th class="pivot-th" style="text-align:left;min-width:200px">Shade</th>` +
     allMonths.map(m=>`<th class="pivot-th">${m}</th>`).join('') +
-    `<th class="pivot-th pivot-total">Total</th>`;
+    `<th class="pivot-th pivot-total">Total Pcs</th>`;
 
   // Pagination
   msAllRows = allShades;
   const page = msPageState;
   const paged = allShades.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE);
 
-  let grandQtyByMonth={}, grand=0;
-  allMonths.forEach(m=>grandQtyByMonth[m]=0);
+  let grandPcsByMonth={}, grand=0;
+  allMonths.forEach(m=>grandPcsByMonth[m]=0);
 
   const body = document.getElementById('msTableBody');
   if (!paged.length) { body.innerHTML='<tr><td colspan="99" class="empty-state"><p>No shade data available</p></td></tr>'; return; }
@@ -2426,7 +2425,7 @@ function renderMonthShadeTable() {
     let tot=0;
     const cells = allMonths.map(m=>{
       const v=(pivot[s]&&pivot[s][m])||0;
-      tot+=v; grandQtyByMonth[m]+=v;
+      tot+=v; grandPcsByMonth[m]+=v;
       return `<td class="pivot-td ${v===0?'zero':''}">${v?num(v):'-'}</td>`;
     }).join('');
     grand+=tot;
@@ -2435,7 +2434,7 @@ function renderMonthShadeTable() {
 
   body.innerHTML = rowsHtml + `<tr style="background:var(--surface2);font-weight:700">
     <td class="pivot-td-label" style="color:var(--gold);font-weight:700">TOTAL</td>
-    ${allMonths.map(m=>`<td class="pivot-td pivot-total">${num(grandQtyByMonth[m])}</td>`).join('')}
+    ${allMonths.map(m=>`<td class="pivot-td pivot-total">${num(grandPcsByMonth[m])}</td>`).join('')}
     <td class="pivot-td pivot-total" style="font-size:1rem;color:var(--gold)">${num(grand)}</td>
   </tr>`;
 
@@ -2449,13 +2448,13 @@ function exportMonthShade() {
   data.forEach(r=>{
     if(!r.shade) return;
     if(!pivot[r.shade]) pivot[r.shade]={};
-    pivot[r.shade][r.month]=(pivot[r.shade][r.month]||0)+r.qty;
+    pivot[r.shade][r.month]=(pivot[r.shade][r.month]||0)+r.totalLtr;
   });
   const rows=[];
   Object.keys(pivot).sort().forEach(s=>{
     const row={'Shade':s}; let tot=0;
     allMonths.forEach(m=>{ const v=(pivot[s]&&pivot[s][m])||0; row[m]=v; tot+=v; });
-    row['Total Qty']=tot; rows.push(row);
+    row['Total Pcs']=tot; rows.push(row);
   });
   const ws=XLSX.utils.json_to_sheet(rows);
   const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Month x Shade');
