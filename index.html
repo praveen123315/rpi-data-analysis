@@ -1694,11 +1694,11 @@ function renderMonthlyTable() {
   renderMonthlyChart();
   const data = getMonthlyFiltered();
 
-  // Group by month + product + customer
+  // Group by month + product + customer + shade
   const map = {};
   data.forEach(r => {
-    const k = r.month+'||'+r.product+'||'+(r.party||'');
-    if (!map[k]) map[k] = { month:r.month, product:r.product, customer:r.party||'—', location:r.location||'—', qty:0, ltr:0, packs:{} };
+    const k = r.month+'||'+r.product+'||'+(r.party||'')+'||'+(r.shade||'');
+    if (!map[k]) map[k] = { month:r.month, product:r.product, customer:r.party||'—', location:r.location||'—', shade:r.shade||'—', qty:0, ltr:0, packs:{} };
     map[k].qty += r.qty;
     map[k].ltr += r.totalLtr;
     if (r.packSize) map[k].packs[r.packSize] = (map[k].packs[r.packSize]||0)+r.qty;
@@ -1722,6 +1722,7 @@ function renderMonthlyTable() {
     <th onclick="sortTable('monthly','location')">Station</th>
     <th onclick="sortTable('monthly','month')">Month</th>
     <th onclick="sortTable('monthly','product')">Product</th>
+    <th onclick="sortTable('monthly','shade')">Shade</th>
     <th onclick="sortTable('monthly','qty')" class="num-right">Qty Sold</th>
     <th onclick="sortTable('monthly','ltr')" class="num-right">Total Ltr/Kg</th>
     <th>Pack Sizes Used</th>`;
@@ -1732,10 +1733,11 @@ function renderMonthlyTable() {
       <td><span class="badge badge-green">${r.location}</span></td>
       <td><span class="badge badge-blue">${r.month}</span></td>
       <td class="product-name-cell" title="${r.product}">${r.product}</td>
+      <td style="font-size:0.82rem;color:var(--purple);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.shade}">${r.shade}</td>
       <td class="num-right">${num(r.qty)}</td>
       <td class="num-right">${num(r.ltr,1)}</td>
       <td>${Object.entries(r.packs).sort((a,b)=>parseFloat(a[0])-parseFloat(b[0])).map(([sz,q])=>`<span class="pack-chip">${sz}L: ${num(q)}</span>`).join('')}</td>
-    </tr>`).join('') : '<tr><td colspan="7" class="empty-state"><p>No data matching filters</p></td></tr>';
+    </tr>`).join('') : '<tr><td colspan="8" class="empty-state"><p>No data matching filters</p></td></tr>';
 
   renderPagination('monthlyPagination', total, page, p=>{ pageState.monthly=p; renderMonthlyTable(); });
 }
@@ -2559,17 +2561,36 @@ function exportMonthly() {
   const data = getMonthlyFiltered();
   const map={};
   data.forEach(r=>{
-    const k=r.month+'||'+r.product+'||'+(r.party||'');
-    if(!map[k]) map[k]={Month:r.month, 'Customer Name':r.party||'—', 'Location':r.location||'—', Product:r.product, 'Qty Sold':0, 'Total Ltr/Kg':0};
+    const k=r.month+'||'+r.product+'||'+(r.party||'')+'||'+(r.shade||'');
+    if(!map[k]) map[k]={Month:r.month, 'Customer Name':r.party||'—', 'Location':r.location||'—', Product:r.product, 'Shade':r.shade||'—', 'Qty Sold':0, 'Total Ltr/Kg':0, _packs:{}};
     map[k]['Qty Sold']+=r.qty; map[k]['Total Ltr/Kg']+=r.totalLtr;
+    if(r.packSize) map[k]._packs[r.packSize]=(map[k]._packs[r.packSize]||0)+r.qty;
   });
-  const ws=XLSX.utils.json_to_sheet(Object.values(map));
+  const rows = Object.values(map).map(r=>{
+    const packStr = Object.entries(r._packs).sort((a,b)=>parseFloat(a[0])-parseFloat(b[0])).map(([sz,q])=>`${sz}L:${q}`).join(', ');
+    return { Month:r.Month, 'Customer Name':r['Customer Name'], Location:r.Location, Product:r.Product, Shade:r.Shade, 'Qty Sold':r['Qty Sold'], 'Total Ltr/Kg':parseFloat(r['Total Ltr/Kg'].toFixed(1)), 'Pack Sizes Used':packStr };
+  });
+  const ws=XLSX.utils.json_to_sheet(rows);
   const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Monthly Sales');
   xlsxDownload(wb,'Monthly_Sales_Report');
 }
 
 function exportPack() {
-  const ws=XLSX.utils.json_to_sheet(packRows.map(r=>({'Product':r.product,'Pack Size':r.packSize?r.packSize+' L/Kg':'N/A','Total Qty':r.totalQty,'Total Ltr/Kg':r.totalLtr.toFixed(1),'Months Active':r.months,'Avg/Month':r.avg.toFixed(1),'Forecast Next':r.forecast})));
+  const data = getPackFiltered();
+  const map={};
+  data.forEach(r=>{
+    const k=r.product+'||'+(r.packSize||'N/A');
+    if(!map[k]) map[k]={product:r.product, packSize:r.packSize, totalQty:0, totalLtr:0, monthsSet:new Set()};
+    map[k].totalQty+=r.qty; map[k].totalLtr+=r.totalLtr;
+    if(r.month) map[k].monthsSet.add(r.month);
+  });
+  const rows = Object.values(map).map(r=>{
+    const months=r.monthsSet.size;
+    const avg=r.totalQty/Math.max(months,1);
+    return {'Product':r.product,'Pack Size':r.packSize?r.packSize+' L/Kg':'N/A','Total Qty':r.totalQty,'Total Ltr/Kg':parseFloat(r.totalLtr.toFixed(1)),'Months Active':months,'Avg/Month':parseFloat(avg.toFixed(1)),'Forecast Next':Math.round(avg*1.05)};
+  });
+  rows.sort((a,b)=>b['Total Qty']-a['Total Qty']);
+  const ws=XLSX.utils.json_to_sheet(rows);
   const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Pack Size');
   xlsxDownload(wb,'Pack_Size_Report');
 }
